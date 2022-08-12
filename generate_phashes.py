@@ -6,9 +6,13 @@ from joblib import Parallel, delayed
 from tqdm import tqdm
 import lmdb
 from PIL import Image
+import argparse
 
+parser = argparse.ArgumentParser()
+parser.add_argument('image_path', type=str,nargs='?', default="./../test_images")
+args = parser.parse_args()
+IMAGE_PATH = args.image_path
 DB = lmdb.open('./phashes.lmdb',map_size=500*1_000_000) #500mb
-IMAGE_PATH = "./../test_images"
 
 def int_to_bytes(x: int) -> bytes:
     return x.to_bytes((x.bit_length() + 7) // 8, 'big')
