@@ -1,6 +1,7 @@
 import uvicorn
 if __name__ == '__main__':
     uvicorn.run('phash_web:app', host='127.0.0.1', port=33336, log_level="info")
+    exit()
 
 import asyncio
 import faiss
@@ -15,11 +16,16 @@ from PIL import Image
 import io
 import lmdb
 
-DB = lmdb.open('./phashes.lmdb',map_size=500*1_000_000) #500mb
-index = None
+index = None    
 DATA_CHANGED_SINCE_LAST_SAVE = False
 app = FastAPI()
 
+def main():
+    global DB_phash
+    init_index()
+    DB_phash = lmdb.open('./phashes.lmdb',map_size=500*1_000_000) #500mb
+    loop = asyncio.get_event_loop()
+    loop.call_later(10, periodically_save_index,loop)
 
 def int_to_bytes(x: int) -> bytes:
     return x.to_bytes((x.bit_length() + 7) // 8, 'big')
@@ -84,11 +90,11 @@ def get_phash_and_mirrored_phash(image_buffer, hash_size=24, highfreq_factor=4):
     return np.array([phash, mirrored_phash])
 
 def delete_descriptor_by_id(id):
-    with DB.begin(write=True,buffers=True) as txn:
+    with DB_phash.begin(write=True,buffers=True) as txn:
         txn.delete(int_to_bytes(id))   #True = deleted False = not found
 
 def add_descriptor(id, phash):
-    with DB.begin(write=True, buffers=True) as txn:
+    with DB_phash.begin(write=True, buffers=True) as txn:
         txn.put(int_to_bytes(id),np.frombuffer(phash,dtype=np.uint8))
 
 def phash_reverse_search(target_features,k,distance_threshold):
@@ -200,8 +206,4 @@ def init_index():
         print("Index is not found! Exiting...")
         exit()
 
-print(__name__)
-if __name__ == 'phash_web':
-    init_index()
-    loop = asyncio.get_event_loop()
-    loop.call_later(10, periodically_save_index,loop)
+main()
