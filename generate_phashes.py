@@ -36,16 +36,16 @@ DB = lmdb.open('./phashes.lmdb',map_size=500*1_000_000) #500mb
 
 def check_if_exists_by_file_name(file_name):
     if USE_INT_FILENAMES:
-        file_id = int(file_name[:file_name.index('.')])
-        file_id = int_to_bytes(file_id)
+        image_id = int(file_name[:file_name.index('.')])
+        image_id = int_to_bytes(image_id)
     else:
         with DB_filename_to_id.begin(buffers=True) as txn:
-            file_id = txn.get(file_name.encode(), default=False)
-            if not file_id:
+            image_id = txn.get(file_name.encode(), default=False)
+            if not image_id:
                 return False
     
     with DB.begin(buffers=True) as txn:
-        x = txn.get(file_id, default=False)
+        x = txn.get(image_id, default=False)
         if x:
             return True
         return False
