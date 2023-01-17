@@ -3,6 +3,18 @@ if __name__ == '__main__':
     uvicorn.run('phash_web:app', host='127.0.0.1', port=33336, log_level="info")
     exit()
 
+from os import environ
+if not "GET_FILENAMES" in environ:
+    print("GET_FILENAMES not found! Defaulting to 0...")
+    GET_FILENAMES = 0
+else:
+    if environ["GET_FILENAMES"] not in ["0","1"]:
+        print("GET_FILENAMES has wrong argument! Defaulting to 0...")
+        GET_FILENAMES = 0
+    else:
+        GET_FILENAMES = int(environ["GET_FILENAMES"])
+
+import traceback
 import asyncio
 import faiss
 from typing import Optional, Union
@@ -21,14 +33,17 @@ DATA_CHANGED_SINCE_LAST_SAVE = False
 app = FastAPI()
 
 def main():
-    global DB_phash
+    global DB_phash, DB_filename_to_id, DB_id_to_filename
     init_index()
     DB_phash = lmdb.open('./phashes.lmdb',map_size=500*1_000_000) #500mb
+    DB_filename_to_id = lmdb.open('./filename_to_id.lmdb',map_size=50*1_000_000) #50mb
+    DB_id_to_filename = lmdb.open('./id_to_filename.lmdb',map_size=50*1_000_000) #50mb
+
     loop = asyncio.get_event_loop()
     loop.call_later(10, periodically_save_index,loop)
 
 def int_to_bytes(x: int) -> bytes:
-    return x.to_bytes((x.bit_length() + 7) // 8, 'big')
+    return x.to_bytes(4, 'big')
 
 @jit(cache=True, nopython=True)
 def bit_list_to_72_uint8(bit_list_576):
@@ -89,13 +104,48 @@ def get_phash_and_mirrored_phash(image_buffer, hash_size=24, highfreq_factor=4):
 
     return np.array([phash, mirrored_phash])
 
-def delete_descriptor_by_id(id):
-    with DB_phash.begin(write=True,buffers=True) as txn:
-        txn.delete(int_to_bytes(id))   #True = deleted False = not found
+def check_if_exists_by_image_id(image_id):
+    with DB_phash.begin(buffers=True) as txn:
+        x = txn.get(int_to_bytes(image_id), default=False)
+        if x:
+            return True
+        return False
 
-def add_descriptor(id, phash):
+def get_filenames_bulk(image_ids):
+    image_ids_bytes = [int_to_bytes(x) for x in image_ids]
+
+    with DB_id_to_filename.begin(buffers=False) as txn:
+        with txn.cursor() as curs:
+            file_names = curs.getmulti(image_ids_bytes)
+    for i in range(len(file_names)):
+        file_names[i] = file_names[i][1].decode()
+
+    return file_names
+
+def delete_descriptor_by_id(image_id):
+    image_id_bytes = int_to_bytes(image_id)
     with DB_phash.begin(write=True, buffers=True) as txn:
-        txn.put(int_to_bytes(id),np.frombuffer(phash,dtype=np.uint8))
+        txn.delete(image_id_bytes)   #True = deleted False = not found
+
+    with DB_id_to_filename.begin(write=True, buffers=True) as txn:
+        file_name_bytes = txn.get(image_id_bytes, default=False)
+        txn.delete(image_id_bytes)  
+
+    with DB_filename_to_id.begin(write=True, buffers=True) as txn:
+        txn.delete(file_name_bytes) 
+
+def add_descriptor(image_id, phash):
+    file_name_bytes = f"{image_id}.online".encode()
+    image_id_bytes = int_to_bytes(image_id)
+    with DB_phash.begin(write=True, buffers=True) as txn:
+        txn.put(image_id_bytes, np.frombuffer(phash,dtype=np.uint8))
+
+    with DB_id_to_filename.begin(write=True, buffers=True) as txn:
+        txn.put(image_id_bytes, file_name_bytes)
+
+    with DB_filename_to_id.begin(write=True, buffers=True) as txn:
+        txn.put(file_name_bytes, image_id_bytes)
+    
 
 def phash_reverse_search(target_features,k,distance_threshold):
     if k is not None:
@@ -144,8 +194,13 @@ async def phash_get_similar_images_by_id_handler(item: Item_phash_get_similar_im
 
         target_features = index.reconstruct(item.image_id).reshape(1,-1)
         similar = phash_reverse_search(target_features,k,distance_threshold)
+        if GET_FILENAMES:
+            file_names = get_filenames_bulk([el["image_id"] for el in similar])
+            for i in range(len(similar)):
+                similar[i]["file_name"] = file_names[i]
         return similar
     except:
+        traceback.print_exc()
         raise HTTPException(
             status_code=500, detail="Error in phash_get_similar_images_by_id_handler")
 
@@ -160,8 +215,13 @@ async def phash_get_similar_images_by_image_buffer_handler(image: bytes = File(.
             raise HTTPException(status_code=500, detail="both k and distance_threshold present")
         target_features = get_phash_and_mirrored_phash(image) #TTA
         similar = phash_reverse_search(target_features,k,distance_threshold)
+        if GET_FILENAMES:
+            file_names = get_filenames_bulk([el["image_id"] for el in similar])
+            for i in range(len(similar)):
+                similar[i]["file_name"] = file_names[i]
         return similar
-    except RuntimeError:
+    except:
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail="Error in phash_get_similar_images_by_image_buffer")
 
 
@@ -169,26 +229,32 @@ async def phash_get_similar_images_by_image_buffer_handler(image: bytes = File(.
 async def calculate_phash_features_handler(image: bytes = File(...), image_id: str = Form(...)):
     try:
         global DATA_CHANGED_SINCE_LAST_SAVE
+        image_id = int(image_id)
+        if check_if_exists_by_image_id(image_id):
+            return Response(content="Image with the same id is already in the db", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, media_type="text/plain")
+
         features = get_phash(image)
-        add_descriptor(int(image_id),features)
+        add_descriptor(image_id,features)
         index.add_with_ids(features.reshape(1,-1), np.int64([image_id]))
         DATA_CHANGED_SINCE_LAST_SAVE = True
         return Response(status_code=status.HTTP_200_OK)
     except:
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail="Can't calculate phash features")
 
 @app.post("/delete_phash_features")
 async def delete_phash_features_handler(item: Item_delete_phash_features):
     try:
         global DATA_CHANGED_SINCE_LAST_SAVE
-        delete_descriptor_by_id(item.image_id)
         res = index.remove_ids(np.int64([item.image_id]))
         if res != 0: 
+            delete_descriptor_by_id(item.image_id)
             DATA_CHANGED_SINCE_LAST_SAVE = True
         else: #nothing to delete
             print(f"err: no image with id {item.image_id}")    
         return Response(status_code=status.HTTP_200_OK)
     except:
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail="Can't delete phash features")
 
 def periodically_save_index(loop):

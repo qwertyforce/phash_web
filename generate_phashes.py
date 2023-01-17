@@ -10,8 +10,9 @@ import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument('image_path', type=str,nargs='?', default="./../test_images")
-parser.add_argument('--use_int_filenames_as_id', type=int, default=1)
+parser.add_argument('--use_int_filenames_as_id',choices=[0,1], type=int, default=0)
 args = parser.parse_args()
+
 IMAGE_PATH = args.image_path
 USE_INT_FILENAMES = args.use_int_filenames_as_id
 
@@ -23,6 +24,7 @@ def int_to_bytes(x: int) -> bytes:
     
 DB_filename_to_id = lmdb.open('./filename_to_id.lmdb',map_size=50*1_000_000) #50mb
 DB_id_to_filename = lmdb.open('./id_to_filename.lmdb',map_size=50*1_000_000) #50mb
+DB = lmdb.open('./phashes.lmdb',map_size=500*1_000_000) #500mb
 
 if USE_INT_FILENAMES == 0:
     with DB_id_to_filename.begin(buffers=True) as txn:
@@ -31,8 +33,6 @@ if USE_INT_FILENAMES == 0:
             x = curs.item()
             SEQUENTIAL_GLOBAL_ID = int_from_bytes(x[0]) # zeros if id_to_filename.lmdb is empty
     SEQUENTIAL_GLOBAL_ID+=1
-
-DB = lmdb.open('./phashes.lmdb',map_size=500*1_000_000) #500mb
 
 def check_if_exists_by_file_name(file_name):
     if USE_INT_FILENAMES:
