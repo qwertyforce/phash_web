@@ -22,11 +22,12 @@ from pydantic import BaseModel
 from fastapi import FastAPI, File, Form, Response, status, HTTPException
 from os.path import exists
 import numpy as np
-from scipy.fft import dct
-from numba import jit
 from PIL import Image
 import io
-import lmdb
+
+from modules.lmdb_ops import get_dbs
+from modules.byte_ops import int_to_bytes
+from modules.phash_ops import get_phash_by_image
 
 index = None    
 DATA_CHANGED_SINCE_LAST_SAVE = False
@@ -35,46 +36,12 @@ app = FastAPI()
 def main():
     global DB_phash, DB_filename_to_id, DB_id_to_filename
     init_index()
-    DB_phash = lmdb.open('./phashes.lmdb',map_size=500*1_000_000) #500mb
-    DB_filename_to_id = lmdb.open('./filename_to_id.lmdb',map_size=50*1_000_000) #50mb
-    DB_id_to_filename = lmdb.open('./id_to_filename.lmdb',map_size=50*1_000_000) #50mb
+    DB_phash, DB_filename_to_id, DB_id_to_filename = get_dbs()
 
     loop = asyncio.get_event_loop()
     loop.call_later(10, periodically_save_index,loop)
 
-def int_to_bytes(x: int) -> bytes:
-    return x.to_bytes(4, 'big')
 
-@jit(cache=True, nopython=True)
-def bit_list_to_72_uint8(bit_list_576):
-    uint8_arr = []
-    for i in range(len(bit_list_576)//8):
-        bit_list = []
-        for j in range(8):
-            if(bit_list_576[i*8+j] == True):
-                bit_list.append(1)
-            else:
-                bit_list.append(0)
-        uint8_arr.append(bit_list_to_int(bit_list))
-    return np.array(uint8_arr, dtype=np.uint8)
-
-@jit(cache=True, nopython=True)
-def bit_list_to_int(bitlist):
-    out = 0
-    for bit in bitlist:
-        out = (out << 1) | bit
-    return out
-
-@jit(cache=True, nopython=True)
-def diff(dct, hash_size):
-    dctlowfreq = dct[:hash_size, :hash_size]
-    med = np.median(dctlowfreq)
-    diff = dctlowfreq > med
-    return diff.flatten()
-
-def fast_phash(resized_image, hash_size):
-    dct_data = dct(dct(resized_image, axis=0), axis=1)
-    return diff(dct_data, hash_size)
 
 def read_img_buffer(image_buffer):
     img = Image.open(io.BytesIO(image_buffer))
@@ -83,26 +50,14 @@ def read_img_buffer(image_buffer):
     return img
 
 def get_phash(image_buffer, hash_size=24, highfreq_factor=4):
-    img_size = hash_size * highfreq_factor
     query_image = read_img_buffer(image_buffer)
-    query_image = query_image.resize((img_size, img_size), Image.Resampling.LANCZOS)
-    query_image = np.array(query_image)
-    bit_list_576 = fast_phash(query_image, hash_size)
-    phash = bit_list_to_72_uint8(bit_list_576)
+    phash = get_phash_by_image(query_image,hash_size, highfreq_factor)
     return phash
 
 def get_phash_and_mirrored_phash(image_buffer, hash_size=24, highfreq_factor=4):
-    img_size = hash_size * highfreq_factor
     query_image = read_img_buffer(image_buffer)
-    query_image = query_image.resize((img_size, img_size), Image.Resampling.LANCZOS)
-    query_image = np.array(query_image) 
-    mirrored_query_image = np.fliplr(query_image)
-    bit_list_576 = fast_phash(query_image, hash_size)
-    bit_list_576_mirrored = fast_phash(mirrored_query_image, hash_size)
-    phash = bit_list_to_72_uint8(bit_list_576)
-    mirrored_phash = bit_list_to_72_uint8(bit_list_576_mirrored)
-
-    return np.array([phash, mirrored_phash])
+    phashes = get_phash_by_image(query_image,hash_size, highfreq_factor, aug=True)
+    return phashes
 
 def check_if_exists_by_image_id(image_id):
     with DB_phash.begin(buffers=True) as txn:

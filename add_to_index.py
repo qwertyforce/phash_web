@@ -2,15 +2,13 @@ from tqdm import tqdm
 import numpy as np
 import lmdb
 import faiss
+from modules.byte_ops import int_from_bytes
 
 DB_features = lmdb.open("phashes.lmdb", readonly=True)
 dim = 72
 faiss_dim = dim*8 #bits
 quantizer = faiss.IndexBinaryFlat(faiss_dim)
 index = faiss.IndexBinaryIDMap2(quantizer)
-
-def int_from_bytes(xbytes: bytes) -> int:
-    return int.from_bytes(xbytes, 'big')
 
 def get_all_data_iterator(batch_size=10000):
     with DB_features.begin(buffers=True) as txn:
