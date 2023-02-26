@@ -93,7 +93,7 @@ def add_descriptor(image_id, phash):
     file_name_bytes = f"{image_id}.online".encode()
     image_id_bytes = int_to_bytes(image_id)
     with DB_phash.begin(write=True, buffers=True) as txn:
-        txn.put(image_id_bytes, np.frombuffer(phash,dtype=np.uint8))
+        txn.put(image_id_bytes, phash.tobytes())
 
     with DB_id_to_filename.begin(write=True, buffers=True) as txn:
         txn.put(image_id_bytes, file_name_bytes)
