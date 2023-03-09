@@ -26,7 +26,7 @@ from PIL import Image
 import io
 
 from modules.lmdb_ops import get_dbs
-from modules.byte_ops import int_to_bytes
+from modules.byte_ops import int_to_bytes, int_from_bytes
 from modules.phash_ops import get_phash_by_image
 
 index = None    
@@ -77,6 +77,13 @@ def get_filenames_bulk(image_ids):
 
     return file_names
 
+def get_image_id_by_filename(file_name):
+    with DB_filename_to_id.begin(buffers=True) as txn:
+        image_id = txn.get(file_name.encode(), default=False)
+        if not image_id:
+            return False
+        return int_from_bytes(image_id)
+            
 def delete_descriptor_by_id(image_id):
     image_id_bytes = int_to_bytes(image_id)
     with DB_phash.begin(write=True, buffers=True) as txn:
@@ -133,7 +140,8 @@ class Item_phash_get_similar_images_by_id(BaseModel):
     distance_threshold: Union[str,int,None] = None
 
 class Item_delete_phash_features(BaseModel):
-    image_id: int
+    image_id: Union[int ,None] = None
+    file_name: Union[None,str] = None
 
 @app.post("/phash_get_similar_images_by_id")
 async def phash_get_similar_images_by_id_handler(item: Item_phash_get_similar_images_by_id):
@@ -201,12 +209,16 @@ async def calculate_phash_features_handler(image: bytes = File(...), image_id: s
 async def delete_phash_features_handler(item: Item_delete_phash_features):
     try:
         global DATA_CHANGED_SINCE_LAST_SAVE
-        res = index.remove_ids(np.int64([item.image_id]))
+        if item.file_name:
+            image_id = get_image_id_by_filename(item.file_name)
+        else:
+            image_id = item.image_id
+        res = index.remove_ids(np.int64([image_id]))
         if res != 0: 
-            delete_descriptor_by_id(item.image_id)
+            delete_descriptor_by_id(image_id)
             DATA_CHANGED_SINCE_LAST_SAVE = True
         else: #nothing to delete
-            print(f"err: no image with id {item.image_id}")    
+            print(f"err: no image with id {image_id}")    
         return Response(status_code=status.HTTP_200_OK)
     except:
         traceback.print_exc()
