@@ -240,6 +240,6 @@ def init_index():
         print("Creating empty index")
         import subprocess
         subprocess.call(['python3', 'add_to_index.py'])
-        subprocess.call(['python', 'add_to_index.py']) #one shoul exist
+        subprocess.call(['python', 'add_to_index.py']) #one should exist
         init_index()
 main()
