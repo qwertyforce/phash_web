@@ -4,7 +4,7 @@ import lmdb
 import faiss
 from modules.byte_ops import int_from_bytes
 
-DB_features = lmdb.open("phashes.lmdb", readonly=True)
+DB_features = lmdb.open("./data/phashes.lmdb", readonly=True)
 dim = 72
 faiss_dim = dim*8 #bits
 quantizer = faiss.IndexBinaryFlat(faiss_dim)
@@ -28,4 +28,4 @@ def get_all_data_iterator(batch_size=10000):
 
 for ids, features in tqdm(get_all_data_iterator(100000)):
     index.add_with_ids(features,ids)
-faiss.write_index_binary(index,"populated.index")
+faiss.write_index_binary(index,"./data/populated.index")

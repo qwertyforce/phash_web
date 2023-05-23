@@ -20,20 +20,20 @@ def int_to_bytes(x: int) -> bytes:
 def int_from_bytes(xbytes: bytes) -> int:
     return int.from_bytes(xbytes, 'big')
 
-if exists("./populated.index"):
-    index = faiss.read_index_binary("./populated.index")
+if exists("./data/populated.index"):
+    index = faiss.read_index_binary("./data/populated.index")
 else:
     print("Index is not found! Exiting...")
     exit()
 
-if exists("./id_to_filename.lmdb") and exists("./filename_to_id.lmdb"):
-    DB_id_to_filename = lmdb.open('./id_to_filename.lmdb',map_size=50*1_000_000) #50mb
-    DB_filename_to_id = lmdb.open('./filename_to_id.lmdb',map_size=50*1_000_000) #50mb
+if exists("./data/id_to_filename.lmdb") and exists("./data/filename_to_id.lmdb"):
+    DB_id_to_filename = lmdb.open('./data/data/id_to_filename.lmdb',map_size=50*1_000_000) #50mb
+    DB_filename_to_id = lmdb.open('./data/data/filename_to_id.lmdb',map_size=50*1_000_000) #50mb
 else:
     print("DB_id_to_filename is not found! Exiting...")
     exit()
 
-DB_phash = lmdb.open('./phashes.lmdb',map_size=500*1_000_000) #500mb
+DB_phash = lmdb.open('./data/phashes.lmdb',map_size=500*1_000_000) #500mb
 
 def get_file_name_by_id(image_id):
     with DB_id_to_filename.begin() as txn:
@@ -121,4 +121,4 @@ with DB_filename_to_id.begin(write=True,buffers=True) as txn:
         txn.delete(file_name.encode())  
 
 print("updating populated.index...")
-faiss.write_index_binary(index, "./populated.index")
+faiss.write_index_binary(index, "./data/populated.index")
