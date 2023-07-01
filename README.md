@@ -8,3 +8,11 @@ Supported operations: add new image, delete image, find similar images by image 
 ```generate_phashes.py ./path_to_img_folder``` -> generates features  
 ```add_to_index.py``` -> adds features from lmdb to Flat index  
 ```phash_web.py``` -> web microservice  
+
+DOCKER:  
+build image - ```docker build -t qwertyforce/phash_web:1.0.0 --network host -t qwertyforce/phash_web:latest ./```  
+  
+run interactively - ```docker run -ti --rm -p 127.0.0.1:33336:33336  --mount type=bind,source="$(pwd)"/data,target=/app/data --name phash_web qwertyforce/phash_web:1.0.0```  
+  
+run as deamon - ```docker run -d --rm -p 127.0.0.1:33336:33336  --mount type=bind,source="$(pwd)"/data,target=/app/data --name phash_web qwertyforce/phash_web:1.0.0 ```  
+
