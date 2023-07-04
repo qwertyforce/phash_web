@@ -6,7 +6,7 @@ Supported operations: add new image, delete image, find similar images by image 
 ```pip3 install -r requirements.txt```
 
 ```generate_phashes.py ./path_to_img_folder``` -> generates features  
-```--use_int_filenames_as_id=0``` - images get sequiential ids  
+```--use_int_filenames_as_id=0``` - images get sequential ids  
 ```--use_int_filenames_as_id=1``` - image id is parsed from filename ("123.jpg" -> 123)
 
 ```add_to_index.py``` -> adds features from lmdb to Flat index  
